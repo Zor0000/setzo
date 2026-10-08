@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 APP_ID = os.environ["ASC_APP_ID"]
-BUILD_ID = "5b5f5502-242a-42d6-a6b7-1cc3591c2309"
+BUILD_ID = "3a3bddd5-f1ff-4c98-a5de-4a55c9764eb0"
 
 
 def redact(value):
