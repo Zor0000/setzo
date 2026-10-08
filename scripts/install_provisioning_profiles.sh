@@ -7,6 +7,12 @@
 # certificate and filling the account's limit — which is how CI broke in August
 # after a dozen unattended builds each left one behind.
 #
+# A second distribution certificate on the account must not stop builds either.
+# In October 2026 B5JF4R83AN appeared next to CI's TKP9T7D2W7 and every build
+# failed rather than guess between them — so the script identifies CI's
+# certificate by fingerprint instead of requiring exactly one. The other
+# certificate is left alone; it may belong to a teammate's local signing.
+#
 # Safe to run on every build: an existing profile is reused, and only a profile
 # Apple has marked unusable is replaced.
 set -euo pipefail
@@ -36,8 +42,8 @@ asc auth login \
 
 # Pull ids by searching the response rather than indexing a fixed path, so a
 # change in how the CLI wraps its output does not quietly break this.
-certificate_ids="$(asc certificates list --certificate-type DISTRIBUTION --paginate --output json \
-  | jq -r '[.. | objects | select(.type? == "certificates") | .id] | unique | .[]')"
+certs_json="$(asc certificates list --certificate-type DISTRIBUTION --paginate --output json)"
+certificate_ids="$(printf '%s' "$certs_json" | jq -r '[.. | objects | select(.type? == "certificates") | .id] | unique | .[]')"
 certificate_count="$(printf '%s\n' "$certificate_ids" | grep -c . || true)"
 
 if [[ "$certificate_count" -eq 0 ]]; then
@@ -45,15 +51,56 @@ if [[ "$certificate_count" -eq 0 ]]; then
   echo "Create one with scripts/new_signing_certificate.sh."
   exit 1
 fi
-if [[ "$certificate_count" -gt 1 ]]; then
-  echo "Expected one distribution certificate, found $certificate_count:"
-  printf '  %s\n' $certificate_ids
-  echo
-  echo "Signing would be a coin toss between them. Revoke the ones that are not"
-  echo "CI's, or pin the right id here."
+
+# Never guess between certificates: use the one whose public half matches the
+# signing identity this job imported. The P12 step runs before this script in
+# the same job, so CI's certificate is in the keychain; `find-identity` prints
+# each identity's SHA-1 fingerprint, which is the SHA-1 of the DER content.
+local_fingerprints="$(security find-identity -v -p codesigning 2> /dev/null \
+  | grep -oE '[0-9A-F]{40}' | tr 'A-Z' 'a-z' || true)"
+if [[ -z "$local_fingerprints" ]]; then
+  echo "No codesigning identity in the keychain."
+  echo "The P12 import step must run before this script."
   exit 1
 fi
-certificate_id="$certificate_ids"
+
+certificate_id=""
+match_count=0
+for candidate in $certificate_ids; do
+  content="$(printf '%s' "$certs_json" \
+    | jq -r --arg id "$candidate" \
+      '[.. | objects | select(.type? == "certificates" and .id == $id) | .certificateContent] | first // empty')"
+  if [[ -z "$content" ]]; then
+    echo "Apple returned no certificate content for $candidate; cannot verify it."
+    exit 1
+  fi
+  fingerprint="$(printf '%s' "$content" | base64 --decode 2> /dev/null \
+    | openssl sha1 -r 2> /dev/null | awk '{print $1}' | tr 'A-Z' 'a-z')"
+  if [[ -z "$fingerprint" ]]; then
+    echo "Could not fingerprint certificate $candidate."
+    exit 1
+  fi
+  if printf '%s\n' "$local_fingerprints" | grep -qxF "$fingerprint"; then
+    certificate_id="$candidate"
+    match_count=$((match_count + 1))
+  fi
+done
+
+if [[ "$match_count" -eq 0 ]]; then
+  echo "None of the $certificate_count distribution certificate(s) on the account"
+  echo "matches this job's signing identity:"
+  printf '  %s\n' $certificate_ids
+  echo "Local keychain fingerprints:"
+  printf '  %s\n' "$local_fingerprints"
+  echo "If CI's certificate was replaced, update SIGNING_CERTIFICATE_P12(+_PASSWORD)."
+  exit 1
+fi
+if [[ "$match_count" -gt 1 ]]; then
+  echo "More than one account certificate matches this job's signing identity;"
+  echo "refusing to choose. Clean up the duplicates in Certificates, Identifiers & Profiles."
+  exit 1
+fi
+echo "Using distribution certificate $certificate_id (matches this job's signing identity)."
 
 bundle_resource_id() {
   asc bundle-ids list --paginate --output json \
