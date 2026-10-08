@@ -69,7 +69,7 @@ match_count=0
 for candidate in $certificate_ids; do
   content="$(printf '%s' "$certs_json" \
     | jq -r --arg id "$candidate" \
-      '[.. | objects | select(.type? == "certificates" and .id == $id) | .certificateContent] | first // empty')"
+      '[.. | objects | select(.type? == "certificates" and .id == $id) | .attributes.certificateContent] | first // empty')"
   if [[ -z "$content" ]]; then
     echo "Apple returned no certificate content for $candidate; cannot verify it."
     exit 1
