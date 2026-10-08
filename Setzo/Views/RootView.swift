@@ -254,7 +254,7 @@ struct AuthView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    Toggle("I am 18 or older (account creation / social sign-in)", isOn: $isAdult)
+                    Toggle("I am 18 or older (required to create an account)", isOn: $isAdult)
                         .font(.system(size: 12))
                         .tint(Theme.accent)
                         .accessibilityIdentifier("account-age-confirmation")
@@ -289,6 +289,14 @@ struct AuthView: View {
 
                     Button {
                         NativeFeedback.light()
+                        // Sign-in with an existing account never requires the
+                        // age toggle — only account creation does. Keeping the
+                        // button tappable here is what keeps App Review (and
+                        // every returning user) from seeing a dead button.
+                        if mode == .signUp && !isAdult {
+                            app.authMessage = "Please confirm you are 18 or older to create an account."
+                            return
+                        }
                         Task { await app.signInWithGoogle() }
                     } label: {
                         HStack(spacing: 10) {
@@ -299,7 +307,7 @@ struct AuthView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SecondaryButtonStyle())
-                    .disabled(app.isBusy || !isAdult)
+                    .disabled(app.isBusy || (mode == .signUp && !isAdult))
                     .accessibilityIdentifier("google-sign-in-button")
 
                     SignInWithAppleButton(.signIn) { request in
@@ -308,6 +316,13 @@ struct AuthView: View {
                         request.nonce = SHA256.hash(data: Data(nonce.utf8)).map { String(format: "%02x", $0) }.joined()
                         request.requestedScopes = [.email, .fullName]
                     } onCompletion: { result in
+                        // Same rule as Google: returning users sign straight
+                        // in; the age check only gates new accounts.
+                        if mode == .signUp && !isAdult {
+                            app.authMessage = "Please confirm you are 18 or older to create an account."
+                            appleNonce = nil
+                            return
+                        }
                         let nonce = appleNonce
                         appleNonce = nil
                         switch result {
@@ -334,7 +349,7 @@ struct AuthView: View {
                     }
                     .signInWithAppleButtonStyle(.white)
                     .frame(height: 48)
-                    .disabled(app.isBusy || !isAdult)
+                    .disabled(app.isBusy || (mode == .signUp && !isAdult))
                     .accessibilityIdentifier("apple-sign-in-button")
 
                     VStack(spacing: 4) {

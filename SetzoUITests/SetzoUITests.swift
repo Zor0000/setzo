@@ -115,7 +115,10 @@ final class SetzoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["apple-sign-in-button"].exists)
         XCTAssertTrue(app.buttons["Privacy Policy"].exists)
         XCTAssertTrue(app.buttons["Terms of Use"].exists)
-        XCTAssertFalse(app.buttons["google-sign-in-button"].isEnabled)
+        // Sign-in mode must keep social buttons tappable — gating them
+        // behind the age toggle is what read as "unresponsive" in review.
+        XCTAssertTrue(app.buttons["google-sign-in-button"].isEnabled)
+        XCTAssertTrue(app.buttons["apple-sign-in-button"].isEnabled)
         app.buttons["forgot-password-button"].tap()
         XCTAssertTrue(app.staticTexts["Reset password"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["send-reset-link-button"].exists)
